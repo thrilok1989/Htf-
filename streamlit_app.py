@@ -31,8 +31,19 @@ def get_detector():
 
 @st.cache_resource
 def get_bot():
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    chat_id = os.getenv('TELEGRAM_CHAT_ID')
+    token = None
+    chat_id = None
+    # Try Streamlit secrets first
+    try:
+        token = st.secrets.get('TELEGRAM_BOT_TOKEN')
+        chat_id = st.secrets.get('TELEGRAM_CHAT_ID')
+    except:
+        pass
+    # Fallback to env
+    if not token:
+        token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if not chat_id:
+        chat_id = os.getenv('TELEGRAM_CHAT_ID')
     if token and chat_id:
         return Bot(token=token), chat_id
     return None, None
