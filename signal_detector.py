@@ -230,59 +230,80 @@ class SignalDetector:
     
     def _detect_reversal_pattern(self, df: pd.DataFrame, direction: str) -> str:
         """
-        Detect reversal candlestick patterns
-        
+        Detect 5 types of reversal candlestick patterns
+
         Returns:
             Description of pattern found, or None
         """
         if len(df) < 3:
             return None
-        
+
         current = df.iloc[-1]
         prev = df.iloc[-2]
-        
+        prev2 = df.iloc[-3] if len(df) >= 3 else None
+
         c_open = current['open']
         c_high = current['high']
         c_low = current['low']
         c_close = current['close']
-        
+
         body = abs(c_close - c_open)
         upper_wick = c_high - max(c_open, c_close)
         lower_wick = min(c_open, c_close) - c_low
-        candle_range = c_high - c_low
-        
+        candle_range = c_high - c_low if c_high != c_low else 0.01
+
         if direction == 'BUY':
-            # Bullish patterns
-            
-            # Hammer: Small body at top, long lower wick
+            # Pattern 1: Hammer
             if body < candle_range * 0.3 and lower_wick > body * 2 and upper_wick < body * 0.5:
-                return "Bullish Hammer detected"
-            
-            # Bullish Engulfing
+                return "Bullish Hammer"
+
+            # Pattern 2: Bullish Engulfing
             if (c_close > c_open and prev['close'] < prev['open'] and
                 c_open < prev['close'] and c_close > prev['open']):
-                return "Bullish Engulfing pattern"
-            
-            # Strong Bullish Rejection
+                return "Bullish Engulfing"
+
+            # Pattern 3: Bullish Rejection Wick
             if c_close > c_open and lower_wick > body * 1.5:
-                return "Strong Bullish Rejection wick"
-                
+                return "Bullish Rejection Wick"
+
+            # Pattern 4: Doji at Support
+            if body < candle_range * 0.1 and candle_range > 0:
+                return "Doji at Support"
+
+            # Pattern 5: Morning Star
+            if prev2 is not None:
+                p2_body = abs(prev2['close'] - prev2['open'])
+                p1_body = abs(prev['close'] - prev['open'])
+                if (prev2['close'] < prev2['open'] and p2_body > candle_range * 0.5 and
+                    p1_body < p2_body * 0.3 and c_close > c_open and body > p1_body):
+                    return "Morning Star"
+
         else:  # SELL
-            # Bearish patterns
-            
-            # Shooting Star: Small body at bottom, long upper wick
+            # Pattern 1: Shooting Star
             if body < candle_range * 0.3 and upper_wick > body * 2 and lower_wick < body * 0.5:
-                return "Bearish Shooting Star detected"
-            
-            # Bearish Engulfing
+                return "Bearish Shooting Star"
+
+            # Pattern 2: Bearish Engulfing
             if (c_close < c_open and prev['close'] > prev['open'] and
                 c_open > prev['close'] and c_close < prev['open']):
-                return "Bearish Engulfing pattern"
-            
-            # Strong Bearish Rejection
+                return "Bearish Engulfing"
+
+            # Pattern 3: Bearish Rejection Wick
             if c_close < c_open and upper_wick > body * 1.5:
-                return "Strong Bearish Rejection wick"
-        
+                return "Bearish Rejection Wick"
+
+            # Pattern 4: Doji at Resistance
+            if body < candle_range * 0.1 and candle_range > 0:
+                return "Doji at Resistance"
+
+            # Pattern 5: Evening Star
+            if prev2 is not None:
+                p2_body = abs(prev2['close'] - prev2['open'])
+                p1_body = abs(prev['close'] - prev['open'])
+                if (prev2['close'] > prev2['open'] and p2_body > candle_range * 0.5 and
+                    p1_body < p2_body * 0.3 and c_close < c_open and body > p1_body):
+                    return "Evening Star"
+
         return None
     
     def _check_level_hold(self, df: pd.DataFrame, level: dict, direction: str) -> str:
@@ -487,12 +508,73 @@ class SignalDetector:
         high = df['high']
         low = df['low']
         close = df['close']
-        
+
         tr1 = high - low
         tr2 = abs(high - close.shift())
         tr3 = abs(low - close.shift())
-        
+
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = tr.rolling(window=period).mean().iloc[-1]
-        
+
         return atr
+
+    def get_htf_levels_table(self, df: pd.DataFrame, current_price: float) -> list:
+        """
+        Get HTF levels with distance from current price for display
+
+        Args:
+            df: DataFrame with OHLC data
+            current_price: Current spot price
+
+        Returns:
+            List of level dictionaries with distance info
+        """
+        levels = self._calculate_htf_levels(df)
+        result = []
+
+        for level in levels:
+            distance = current_price - level['price']
+            distance_pct = (distance / level['price']) * 100
+            proximity = "NEAR" if abs(distance_pct) <= self.level_proximity_pct else ""
+
+            result.append({
+                'Timeframe': level['timeframe'],
+                'Type': level['type'],
+                'Price': level['price'],
+                'Distance': distance,
+                'Distance%': distance_pct,
+                'Status': proximity
+            })
+
+        return sorted(result, key=lambda x: abs(x['Distance']))
+
+    def get_indicators(self, df: pd.DataFrame) -> dict:
+        """Get current RSI and MACD values"""
+        if len(df) < 50:
+            return {'rsi': None, 'macd': None, 'macd_signal': None}
+
+        close = df['close']
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0).rolling(window=14).mean()
+        loss = -delta.where(delta < 0, 0).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+
+        exp1 = close.ewm(span=12, adjust=False).mean()
+        exp2 = close.ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=9, adjust=False).mean()
+
+        return {
+            'rsi': rsi.iloc[-1],
+            'macd': macd.iloc[-1],
+            'macd_signal': signal.iloc[-1]
+        }
+
+    def detect_current_pattern(self, df: pd.DataFrame) -> str:
+        """Detect pattern at current candle (direction-agnostic for display)"""
+        buy_pattern = self._detect_reversal_pattern(df, 'BUY')
+        if buy_pattern:
+            return buy_pattern
+        sell_pattern = self._detect_reversal_pattern(df, 'SELL')
+        return sell_pattern
