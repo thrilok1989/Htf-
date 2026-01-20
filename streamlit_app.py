@@ -8,6 +8,7 @@ import pandas as pd
 import asyncio
 from datetime import datetime, timedelta
 import pytz
+import time
 import os
 from dotenv import load_dotenv
 
@@ -33,13 +34,11 @@ def get_detector():
 def get_bot():
     token = None
     chat_id = None
-    # Try Streamlit secrets first
     try:
         token = st.secrets.get('TELEGRAM_BOT_TOKEN')
         chat_id = st.secrets.get('TELEGRAM_CHAT_ID')
     except:
         pass
-    # Fallback to env
     if not token:
         token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not chat_id:
@@ -48,26 +47,21 @@ def get_bot():
         return Bot(token=token), chat_id
     return None, None
 
-@st.cache_data(ttl=25)
-def fetch_data(instrument: str, _timestamp: int):
-    """Fetch intraday data with caching"""
-    fetcher = get_fetcher()
+def fetch_data(fetcher, instrument: str, use_mock: bool = False):
+    """Fetch data - real or mock"""
+    if use_mock:
+        return fetcher.get_mock_data(instrument)
+
     to_date = datetime.now(IST)
     from_date = to_date - timedelta(days=1)
-    result = fetcher.fetch_intraday_data(
+    return fetcher.fetch_intraday_data(
         instrument=instrument,
         interval='1',
         from_date=from_date.strftime('%Y-%m-%d'),
         to_date=to_date.strftime('%Y-%m-%d')
     )
-    if result.get('success'):
-        data = result.get('data')
-        if data is not None and len(data) >= 10:
-            return data
-    return None
 
 async def send_telegram(bot, chat_id, signal):
-    """Send signal to Telegram"""
     if not bot:
         return
     emoji = "🟢" if signal['signal_type'] == 'BUY' else "🔴"
@@ -84,12 +78,12 @@ async def send_telegram(bot, chat_id, signal):
 def main():
     st.title("📊 HTF Signal Bot")
 
-    # Session state
     if 'signals' not in st.session_state:
         st.session_state.signals = []
     if 'sent_signals' not in st.session_state:
         st.session_state.sent_signals = {}
 
+    fetcher = get_fetcher()
     detector = get_detector()
     bot, chat_id = get_bot()
 
@@ -99,6 +93,7 @@ def main():
         instrument = st.selectbox("Instrument", ["NIFTY", "BANKNIFTY", "SENSEX"])
         auto_telegram = st.checkbox("Auto Telegram", value=True)
         cooldown_mins = st.slider("Cooldown (min)", 5, 60, 15)
+        use_mock = st.checkbox("Use Demo Data", value=False, help="Use mock data if API fails")
         st.divider()
         st.caption(f"Telegram: {'✅' if bot else '❌'}")
         if st.button("🗑️ Clear"):
@@ -108,30 +103,25 @@ def main():
     now = datetime.now(IST)
     is_open = now.replace(hour=9, minute=15, second=0) <= now <= now.replace(hour=15, minute=30, second=0)
 
-    # Fetch with cache key based on 30s intervals
-    cache_key = int(now.timestamp()) // 30
-    df = fetch_data(instrument, cache_key)
+    # Fetch data
+    result = fetch_data(fetcher, instrument, use_mock)
 
-    if df is None:
-        st.warning("⚠️ No data. Checking API...")
-        # Show debug info
-        try:
-            fetcher = get_fetcher()
-            to_date = datetime.now(IST)
-            from_date = to_date - timedelta(days=1)
-            result = fetcher.fetch_intraday_data(
-                instrument=instrument,
-                interval='1',
-                from_date=from_date.strftime('%Y-%m-%d'),
-                to_date=to_date.strftime('%Y-%m-%d')
-            )
-            if not result.get('success'):
-                st.error(f"API Error: {result.get('error', 'Unknown')}")
-            else:
-                st.info(f"Data rows: {len(result.get('data', []))}")
-        except Exception as e:
-            st.error(f"Exception: {e}")
-        st.stop()
+    if not result.get('success'):
+        st.warning(f"⚠️ API Error: {result.get('error', 'Unknown')}")
+        st.info("Enable 'Use Demo Data' in sidebar to test the app")
+        time.sleep(10)
+        st.rerun()
+        return
+
+    df = result['data']
+    if df is None or len(df) < 10:
+        st.warning("⚠️ Not enough data")
+        time.sleep(10)
+        st.rerun()
+        return
+
+    if result.get('is_mock'):
+        st.info("📊 Using demo data (API unavailable)")
 
     price = df['close'].iloc[-1]
     prev = df['close'].iloc[-2]
@@ -166,7 +156,8 @@ def main():
         if ind['rsi']:
             st.markdown(f"**RSI:** {'🟢' if 30<ind['rsi']<70 else '🔴'} {ind['rsi']:.1f}")
             st.markdown(f"**MACD:** {'🟢' if ind['macd']>ind['macd_signal'] else '🔴'} {ind['macd']:.2f}")
-        vol = df['volume'].iloc[-1] / df['volume'].tail(20).mean()
+        avg_vol = df['volume'].tail(20).mean()
+        vol = df['volume'].iloc[-1] / avg_vol if avg_vol > 0 else 1
         st.markdown(f"**Vol:** {vol:.1f}x {'🔥' if vol>=1.5 else ''}")
         st.divider()
         pattern = detector.detect_current_pattern(df)
@@ -178,7 +169,7 @@ def main():
     st.subheader("🎯 Signals")
     st.caption("2+ confirms | Strength≥5 | ≤0.3% from level | 15min cooldown")
 
-    if is_open:
+    if is_open or use_mock:
         for sig in detector.detect_signals(df, instrument):
             key = f"{sig['instrument']}_{sig['signal_type']}"
             if key in st.session_state.sent_signals:
@@ -198,9 +189,6 @@ def main():
 
     st.caption("⚠️ Educational only")
 
-    # Auto-refresh using st.rerun with experimental_fragment would be ideal
-    # Using simple rerun with sleep for compatibility
-    import time
     time.sleep(30)
     st.rerun()
 
