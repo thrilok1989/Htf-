@@ -52,13 +52,16 @@ def fetch_data(fetcher, instrument: str, use_mock: bool = False):
     if use_mock:
         return fetcher.get_mock_data(instrument)
 
-    to_date = datetime.now(IST)
-    from_date = to_date - timedelta(days=1)
+    # Use datetime format: "2024-09-11 09:30:00"
+    now = datetime.now(IST)
+    to_date = now.strftime('%Y-%m-%d %H:%M:%S')
+    from_date = (now - timedelta(days=1)).strftime('%Y-%m-%d 09:15:00')
+
     return fetcher.fetch_intraday_data(
         instrument=instrument,
         interval='1',
-        from_date=from_date.strftime('%Y-%m-%d'),
-        to_date=to_date.strftime('%Y-%m-%d')
+        from_date=from_date,
+        to_date=to_date
     )
 
 async def send_telegram(bot, chat_id, signal):
