@@ -27,83 +27,47 @@ class DhanDataFetcher:
         print("DhanHQ Data Fetcher initialized")
 
     def fetch_live_quote(self, instrument: str) -> dict:
-        """Fetch live LTP using Option Chain API (returns underlying spot price)"""
+        """Fetch live LTP using Market Quote API"""
         try:
             if instrument not in self.instruments:
                 return {'success': False, 'error': f"Unknown instrument: {instrument}"}
 
             inst = self.instruments[instrument]
 
-            # Use Option Chain API - it returns last_price of underlying
-            url = f"{self.base_url}/v2/optionchain"
+            # Use Market Feed LTP API
+            url = f"{self.base_url}/v2/marketfeed/ltp"
 
             headers = {
                 'access-token': self.access_token,
                 'client-id': self.client_id,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             }
 
-            # Get nearest expiry first
-            expiry = self._get_nearest_expiry(instrument)
-
+            # Request format: {"IDX_I": [13]}
             payload = {
-                'UnderlyingScrip': int(inst['security_id']),
-                'UnderlyingSeg': inst['exchange'],
-                'Expiry': expiry
+                inst['exchange']: [int(inst['security_id'])]
             }
 
             response = requests.post(url, json=payload, headers=headers, timeout=10)
 
             if response.status_code != 200:
-                return {'success': False, 'error': f"Quote API {response.status_code}: {response.text[:100]}"}
+                return {'success': False, 'error': f"LTP API {response.status_code}: {response.text[:100]}"}
 
             data = response.json()
 
-            # Option Chain returns: {"data": {"last_price": 24964.25, "oc": {...}}}
-            if 'data' in data and 'last_price' in data['data']:
-                ltp = data['data']['last_price']
-                return {'success': True, 'ltp': float(ltp), 'instrument': instrument}
+            # Response: {"data": {"IDX_I": {"13": {"last_price": 24500}}}, "status": "success"}
+            if data.get('status') == 'success' and 'data' in data:
+                exchange_data = data['data'].get(inst['exchange'], {})
+                security_data = exchange_data.get(inst['security_id'], {})
+                ltp = security_data.get('last_price')
+                if ltp:
+                    return {'success': True, 'ltp': float(ltp), 'instrument': instrument}
 
             return {'success': False, 'error': f'No LTP: {str(data)[:150]}'}
 
         except Exception as e:
             return {'success': False, 'error': f"Quote error: {str(e)}"}
-
-    def _get_nearest_expiry(self, instrument: str) -> str:
-        """Get nearest expiry date for option chain"""
-        try:
-            inst = self.instruments[instrument]
-            url = f"{self.base_url}/v2/optionchain/expirylist"
-
-            headers = {
-                'access-token': self.access_token,
-                'client-id': self.client_id,
-                'Content-Type': 'application/json'
-            }
-
-            payload = {
-                'UnderlyingScrip': int(inst['security_id']),
-                'UnderlyingSeg': inst['exchange']
-            }
-
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-                if 'data' in data and len(data['data']) > 0:
-                    return data['data'][0]  # First expiry is nearest
-
-        except:
-            pass
-
-        # Default to next Thursday if API fails
-        from datetime import date
-        today = date.today()
-        days_until_thursday = (3 - today.weekday()) % 7
-        if days_until_thursday == 0:
-            days_until_thursday = 7
-        next_thursday = today + timedelta(days=days_until_thursday)
-        return next_thursday.strftime('%Y-%m-%d')
 
     def fetch_intraday_data(self, instrument: str, interval: str = '1',
                            from_date: str = None, to_date: str = None) -> dict:
