@@ -40,10 +40,11 @@ class DhanDataFetcher:
             if not from_date:
                 from_date = to_date
 
-            url = f"{self.base_url}/v2/charts/intraday"
+            url = f"{self.base_url}/charts/intraday"
 
             headers = {
                 'access-token': self.access_token,
+                'client-id': self.client_id,
                 'Content-Type': 'application/json'
             }
 
