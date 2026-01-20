@@ -53,15 +53,17 @@ def fetch_data(instrument: str, _timestamp: int):
     """Fetch intraday data with caching"""
     fetcher = get_fetcher()
     to_date = datetime.now(IST)
-    from_date = to_date - timedelta(hours=4)
+    from_date = to_date - timedelta(days=1)
     result = fetcher.fetch_intraday_data(
         instrument=instrument,
         interval='1',
         from_date=from_date.strftime('%Y-%m-%d'),
         to_date=to_date.strftime('%Y-%m-%d')
     )
-    if result.get('success') and len(result.get('data', [])) >= 50:
-        return result['data']
+    if result.get('success'):
+        data = result.get('data')
+        if data is not None and len(data) >= 10:
+            return data
     return None
 
 async def send_telegram(bot, chat_id, signal):
@@ -111,7 +113,24 @@ def main():
     df = fetch_data(instrument, cache_key)
 
     if df is None:
-        st.warning("⚠️ No data. Check API credentials.")
+        st.warning("⚠️ No data. Checking API...")
+        # Show debug info
+        try:
+            fetcher = get_fetcher()
+            to_date = datetime.now(IST)
+            from_date = to_date - timedelta(days=1)
+            result = fetcher.fetch_intraday_data(
+                instrument=instrument,
+                interval='1',
+                from_date=from_date.strftime('%Y-%m-%d'),
+                to_date=to_date.strftime('%Y-%m-%d')
+            )
+            if not result.get('success'):
+                st.error(f"API Error: {result.get('error', 'Unknown')}")
+            else:
+                st.info(f"Data rows: {len(result.get('data', []))}")
+        except Exception as e:
+            st.error(f"Exception: {e}")
         st.stop()
 
     price = df['close'].iloc[-1]
