@@ -85,6 +85,8 @@ def main():
         st.session_state.signals = []
     if 'sent_signals' not in st.session_state:
         st.session_state.sent_signals = {}
+    if 'last_price' not in st.session_state:
+        st.session_state.last_price = {}
 
     fetcher = get_fetcher()
     detector = get_detector()
@@ -108,7 +110,12 @@ def main():
 
     # Fetch live quote for spot price
     quote_result = fetcher.fetch_live_quote(instrument)
-    live_price = quote_result.get('ltp') if quote_result.get('success') else None
+    if quote_result.get('success'):
+        live_price = quote_result.get('ltp')
+        st.session_state.last_price[instrument] = live_price
+    else:
+        # Use cached price if available
+        live_price = st.session_state.last_price.get(instrument)
 
     # Fetch historical data for HTF levels
     result = fetch_data(fetcher, instrument, use_mock)
