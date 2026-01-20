@@ -22,11 +22,11 @@ class DhanDataFetcher:
         self.client_id, self.access_token = get_dhan_credentials()
         self.base_url = "https://api.dhan.co"
 
-        # Correct instrument mapping for DhanHQ API
+        # Correct instrument mapping for DhanHQ API (from IDX_I segment)
         self.instruments = {
-            'NIFTY': {'exchange': 'NSE_EQ', 'security_id': '26000'},
-            'BANKNIFTY': {'exchange': 'NSE_EQ', 'security_id': '26009'},
-            'SENSEX': {'exchange': 'BSE_EQ', 'security_id': '1'}
+            'NIFTY': {'exchange': 'IDX_I', 'security_id': '13'},
+            'BANKNIFTY': {'exchange': 'IDX_I', 'security_id': '25'},
+            'SENSEX': {'exchange': 'IDX_I', 'security_id': '51'}
         }
 
         print("✅ DhanHQ Data Fetcher initialized")
