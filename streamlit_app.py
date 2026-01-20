@@ -106,7 +106,11 @@ def main():
     now = datetime.now(IST)
     is_open = now.replace(hour=9, minute=15, second=0) <= now <= now.replace(hour=15, minute=30, second=0)
 
-    # Fetch data
+    # Fetch live quote for spot price
+    quote_result = fetcher.fetch_live_quote(instrument)
+    live_price = quote_result.get('ltp') if quote_result.get('success') else None
+
+    # Fetch historical data for HTF levels
     result = fetch_data(fetcher, instrument, use_mock)
 
     if not result.get('success'):
@@ -126,7 +130,8 @@ def main():
     if result.get('is_mock'):
         st.info("📊 Using demo data (API unavailable)")
 
-    price = df['close'].iloc[-1]
+    # Use live price if available, else use last close
+    price = live_price if live_price else df['close'].iloc[-1]
     prev = df['close'].iloc[-2]
     chg = price - prev
     chg_pct = (chg / prev) * 100
