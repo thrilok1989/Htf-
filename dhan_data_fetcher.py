@@ -34,33 +34,37 @@ class DhanDataFetcher:
 
             inst = self.instruments[instrument]
 
+            # Use Market Feed LTP API
             url = f"{self.base_url}/v2/marketfeed/ltp"
 
             headers = {
                 'access-token': self.access_token,
-                'Content-Type': 'application/json'
+                'client-id': self.client_id,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             }
 
+            # Request format: {"IDX_I": [13]}
             payload = {
-                inst['exchange']: [inst['security_id']]
+                inst['exchange']: [int(inst['security_id'])]
             }
 
             response = requests.post(url, json=payload, headers=headers, timeout=10)
 
             if response.status_code != 200:
-                return {'success': False, 'error': f"Quote API {response.status_code}"}
+                return {'success': False, 'error': f"LTP API {response.status_code}: {response.text[:100]}"}
 
             data = response.json()
 
-            # Parse response - format: {"data": {"IDX_I": {"13": {"last_price": 23500}}}}
-            if 'data' in data:
+            # Response: {"data": {"IDX_I": {"13": {"last_price": 24500}}}, "status": "success"}
+            if data.get('status') == 'success' and 'data' in data:
                 exchange_data = data['data'].get(inst['exchange'], {})
                 security_data = exchange_data.get(inst['security_id'], {})
-                ltp = security_data.get('last_price') or security_data.get('LTP')
+                ltp = security_data.get('last_price')
                 if ltp:
                     return {'success': True, 'ltp': float(ltp), 'instrument': instrument}
 
-            return {'success': False, 'error': f'No LTP in response: {str(data)[:150]}'}
+            return {'success': False, 'error': f'No LTP: {str(data)[:150]}'}
 
         except Exception as e:
             return {'success': False, 'error': f"Quote error: {str(e)}"}
