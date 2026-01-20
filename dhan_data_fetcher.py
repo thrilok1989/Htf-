@@ -22,11 +22,11 @@ class DhanDataFetcher:
         self.client_id, self.access_token = get_dhan_credentials()
         self.base_url = "https://api.dhan.co"
         
-        # Instrument mapping
+        # Instrument mapping - using IDX_I for index data
         self.instruments = {
-            'NIFTY': {'exchange': 'NSE_FNO', 'security_id': '13'},
-            'BANKNIFTY': {'exchange': 'NSE_FNO', 'security_id': '25'},
-            'SENSEX': {'exchange': 'BSE_FNO', 'security_id': '1'}
+            'NIFTY': {'exchange': 'IDX_I', 'security_id': '13'},
+            'BANKNIFTY': {'exchange': 'IDX_I', 'security_id': '25'},
+            'SENSEX': {'exchange': 'IDX_I', 'security_id': '51'}
         }
         
         print("✅ DhanHQ Data Fetcher initialized")
@@ -84,10 +84,17 @@ class DhanDataFetcher:
             if response.status_code != 200:
                 return {
                     'success': False,
-                    'error': f"API request failed: {response.status_code}"
+                    'error': f"API {response.status_code}: {response.text[:200]}"
                 }
-            
+
             data = response.json()
+
+            # Check for API error response
+            if data.get('status') == 'failure' or data.get('errorCode'):
+                return {
+                    'success': False,
+                    'error': f"API: {data.get('message', data.get('errorCode', 'Unknown error'))}"
+                }
             
             # Parse data into DataFrame
             if 'data' in data and len(data['data']) > 0:
